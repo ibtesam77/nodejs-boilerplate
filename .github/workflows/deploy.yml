@@ -1,0 +1,50 @@
+name: Deploy to Cloudways
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18.16.0"
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          eval "$(ssh-agent -s)"
+          ssh-add ~/.ssh/id_rsa
+          ssh-keyscan -t rsa "${{ secrets.CLOUDWAYS_PUBLIC_IP }}" >> ~/.ssh/known_hosts
+
+      - name: Login to Cloudways
+        env:
+          username: ${{ secrets.CLOUDWAYS_USER }}
+          public_ip: ${{ secrets.CLOUDWAYS_PUBLIC_IP }}
+          remote_dir: ${{ secrets.CLOUDWAYS_REMOTE_DIR }}
+        run: |
+          rsync -avzr -e "ssh -p 22 -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" / ${username}@${public_ip}:${remote_dir}
+
+      - name: Fetch Latest Code
+        env:
+          remote_dir: ${{ secrets.CLOUDWAYS_REMOTE_DIR }}
+        run: "cd ${remote_dir} && git pull"
+
+      - name: Install Dependencies
+        run: "npm install"
+
+      - name: Generate Prisma Schema
+        run: "npx prisma generate"
+
+      - name: Restart Application
+        run: "pm2 restart 0"
